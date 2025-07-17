@@ -63,12 +63,6 @@ jobs:
           cd ios
           pod install
 
-      - name: Get iOS Workspace Name
-        id: iosmeta
-        run: |
-          name=$(ls ios/*.xcworkspace | sed 's|ios/||' | sed 's|.xcworkspace||')
-          echo "workspace_name=$name" >> "$GITHUB_OUTPUT"
-
       - name: Build JS Bundle (iOS)
         if: env.BUILD_TARGET == 'bundle'
         run: |
@@ -79,6 +73,13 @@ jobs:
             --entry-file index.js \
             --bundle-output ios/main.jsbundle/main.jsbundle \
             --assets-dest ios/main.jsbundle
+      - name: Get iOS Workspace and Scheme Name
+        id: iosmeta
+        run: |
+          workspace_path=$(find ios -name "*.xcworkspace" | head -n 1)
+          workspace_name=$(basename "$workspace_path" .xcworkspace)
+          echo "workspace_name=$workspace_name" >> "$GITHUB_OUTPUT"
+      
 
       - name: Build IPA
         if: env.BUILD_TARGET == 'ipa'
