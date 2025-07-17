@@ -1,0 +1,103 @@
+name: Build React Native App (APK, IPA, or Bundle)
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Build target: apk, ipa, or bundle'
+        required: false
+        default: 'apk'
+
+jobs:
+  build-android:
+    if: github.event.inputs.target == 'apk' || github.event.inputs.target == 'bundle' || github.event.inputs.target == ''
+    runs-on: ubuntu-latest
+
+    env:
+      BUILD_TARGET: ${{ github.event.inputs.target || 'apk' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker Image
+        run: docker build -t react-native-android-builder --build-arg BUILD_TARGET=${{ env.BUILD_TARGET }} .
+
+      - name: Run Docker Container & Copy Output
+        run: |
+          docker create --name builder react-native-android-builder
+          docker cp builder:/output ./output
+          docker rm builder
+
+      - name: Upload Android Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-${{ env.BUILD_TARGET }}
+          path: ./output/
+
+  build-ios:
+    if: github.event.inputs.target == 'ipa' || github.event.inputs.target == 'bundle'
+    runs-on: macos-latest
+
+    env:
+      BUILD_TARGET: ${{ github.event.inputs.target || 'ipa' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install Dependencies
+        run: |
+          npm install
+          cd ios
+          pod install
+
+      - name: Get iOS Workspace Name
+        id: iosmeta
+        run: |
+          name=$(ls ios/*.xcworkspace | sed 's|ios/||' | sed 's|.xcworkspace||')
+          echo "workspace_name=$name" >> "$GITHUB_OUTPUT"
+
+      - name: Build JS Bundle (iOS)
+        if: env.BUILD_TARGET == 'bundle'
+        run: |
+          mkdir -p ios/main.jsbundle
+          npx react-native bundle \
+            --platform ios \
+            --dev false \
+            --entry-file index.js \
+            --bundle-output ios/main.jsbundle/main.jsbundle \
+            --assets-dest ios/main.jsbundle
+
+      - name: Build IPA
+        if: env.BUILD_TARGET == 'ipa'
+        run: |
+          xcodebuild -workspace ios/${{ steps.iosmeta.outputs.workspace_name }}.xcworkspace \
+            -scheme ${{ steps.iosmeta.outputs.workspace_name }} \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath ios/build/App.xcarchive archive
+
+          xcodebuild -exportArchive \
+            -archivePath ios/build/App.xcarchive \
+            -exportOptionsPlist ios/exportOptions.plist \
+            -exportPath ios/build/ipa
+
+      - name: Upload iOS Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-${{ env.BUILD_TARGET }}
+          path: |
+            ios/main.jsbundle/**
+            ios/build/ipa/**/*.ipa
