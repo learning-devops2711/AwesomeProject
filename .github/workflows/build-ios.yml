@@ -1,0 +1,68 @@
+name: Build React Native iOS IPA or Bundle
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Build target: ipa or bundle'
+        required: false
+        default: 'ipa'
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+
+    env:
+      BUILD_TARGET: ${{ github.event.inputs.target || 'ipa' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install dependencies
+        run: |
+          npm install
+          cd ios
+          pod install
+          cd ..
+
+      - name: Build JS Bundle (if selected)
+        if: env.BUILD_TARGET == 'bundle'
+        run: |
+          mkdir -p ios/main.jsbundle
+          npx react-native bundle \
+            --platform ios \
+            --dev false \
+            --entry-file index.js \
+            --bundle-output ios/main.jsbundle/main.jsbundle \
+            --assets-dest ios/main.jsbundle
+
+      - name: Build IPA (if selected)
+        if: env.BUILD_TARGET == 'ipa'
+        run: |
+          xcodebuild -workspace ios/YourApp.xcworkspace \
+            -scheme YourApp \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath ios/build/YourApp.xcarchive archive
+
+          xcodebuild -exportArchive \
+            -archivePath ios/build/YourApp.xcarchive \
+            -exportOptionsPlist ios/exportOptions.plist \
+            -exportPath ios/build/ipa
+
+      - name: Upload Artifact (Bundle or IPA)
+        uses: actions/upload-artifact@v4
+        with:
+          name: react-native-ios-${{ env.BUILD_TARGET }}
+          path: |
+            ios/main.jsbundle/**
+            ios/build/ipa/**/*.ipa
